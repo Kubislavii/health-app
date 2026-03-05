@@ -1,0 +1,118 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="overview-header">
+    <h1>Přehled výsledků</h1>
+    <a href="{{ url_for('add') }}" class="btn-new-collection">+ Nový odběr</a>
+</div>
+
+{% if grouped %}
+    {% for date, results in grouped.items() %}
+    <div class="date-group">
+        <div class="date-header">
+            <h2>{{ date }}</h2>
+            <a href="{{ url_for('add_to_date', date=date) }}" class="btn-add-more" title="Přidat hodnoty k tomuto datu">+ Přidat hodnoty</a>
+        </div>
+        <div class="table-wrap">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Parametr</th>
+                        <th>Hodnota</th>
+                        <th>Jednotka</th>
+                        <th>Ref. min</th>
+                        <th>Ref. max</th>
+                        <th>Poznámka</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for r in results %}
+                    <tr>
+                        <td>
+                            {{ r.parameter }}
+                            <a href="{{ url_for('graph') }}#{{ r.parameter | urlencode }}" class="btn-graph-link" title="Zobrazit graf">&#x1f4c8;</a>
+                        </td>
+                        <td>
+                            <span class="editable-value"
+                                  data-id="{{ r.id }}"
+                                  onclick="editValue(this)"
+                                  title="Klikněte pro úpravu">
+                                {% if r.ref_min is not none and r.ref_max is not none %}
+                                    {% if r.value < r.ref_min or r.value > r.ref_max %}
+                                        <span class="out-of-range">{{ r.value }}</span>
+                                    {% else %}
+                                        <span class="in-range">{{ r.value }}</span>
+                                    {% endif %}
+                                {% else %}
+                                    {{ r.value }}
+                                {% endif %}
+                            </span>
+                        </td>
+                        <td>{{ r.unit }}</td>
+                        <td>{{ r.ref_min if r.ref_min is not none else "–" }}</td>
+                        <td>{{ r.ref_max if r.ref_max is not none else "–" }}</td>
+                        <td>{{ r.note or "" }}</td>
+                        <td>
+                            <button class="btn-delete" onclick="deleteResult({{ r.id }})" title="Smazat">&#10005;</button>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    {% endfor %}
+{% else %}
+<p class="empty">Zatím žádné výsledky. <a href="{{ url_for('add') }}">Přidejte první odběr.</a></p>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+function deleteResult(id) {
+    if (!confirm("Opravdu smazat tento záznam?")) return;
+    fetch("/api/delete/" + id, { method: "POST" })
+        .then(r => r.json())
+        .then(() => location.reload());
+}
+
+function editValue(el) {
+    const id = el.dataset.id;
+    const currentText = el.textContent.trim();
+    const currentValue = parseFloat(currentText);
+
+    const input = document.createElement("input");
+    input.type = "number";
+    input.step = "any";
+    input.value = currentValue;
+    input.className = "inline-edit";
+
+    el.textContent = "";
+    el.appendChild(input);
+    input.focus();
+    input.select();
+
+    function save() {
+        const newValue = parseFloat(input.value);
+        if (isNaN(newValue)) {
+            location.reload();
+            return;
+        }
+        fetch("/api/update/" + id, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ value: newValue })
+        })
+        .then(r => r.json())
+        .then(() => location.reload());
+    }
+
+    input.addEventListener("blur", save);
+    input.addEventListener("keydown", e => {
+        if (e.key === "Enter") save();
+        if (e.key === "Escape") location.reload();
+    });
+}
+</script>
+{% endblock %}

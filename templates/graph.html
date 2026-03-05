@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="add-header">
+    <a href="{{ url_for('index') }}" class="btn-back">&larr; Zpět</a>
+    <h1>Graf v čase</h1>
+</div>
+
+<div class="graph-controls">
+    <label for="param-select">Parametr:</label>
+    <select id="param-select">
+        <option value="">— vyberte parametr —</option>
+    </select>
+</div>
+
+<div class="chart-container">
+    <canvas id="chart"></canvas>
+</div>
+
+<p id="no-data" class="empty" style="display:none;">Pro tento parametr nejsou žádná data.</p>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+<script src="{{ url_for('static', filename='script.js') }}"></script>
+{% endblock %}

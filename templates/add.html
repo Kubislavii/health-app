@@ -1,0 +1,104 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="add-header">
+    <a href="{{ url_for('index') }}" class="btn-back">&larr; Zpět</a>
+    <h1>{% if prefill_date is defined and prefill_date %}Přidat hodnoty ({{ prefill_date }}){% else %}Nový odběr{% endif %}</h1>
+</div>
+
+<form method="POST" action="{{ url_for('add') }}" class="form-add">
+    <div class="form-row">
+        <label for="date">Datum odběru</label>
+        <input type="date" id="date" name="date"
+               value="{{ prefill_date if prefill_date is defined and prefill_date else '' }}"
+               {% if prefill_date is defined and prefill_date %}readonly{% endif %}
+               required>
+    </div>
+
+    <div class="form-row">
+        <label for="note">Poznámka (volitelné)</label>
+        <input type="text" id="note" name="note" placeholder="např. nemocnice, lékař...">
+    </div>
+
+    <h2 class="section-title">Zaškrtněte měřené parametry a vyplňte hodnoty</h2>
+
+    {% for cat_name, params in categories.items() %}
+    <div class="param-category">
+        <h3 class="category-header" onclick="toggleCategory(this)">
+            <span class="cat-arrow">&#9654;</span> {{ cat_name }}
+        </h3>
+        <div class="category-body collapsed">
+            {% for p in params %}
+            <div class="param-row {% if p.existing is defined and p.existing %}param-existing{% endif %}">
+                <label class="param-check">
+                    <input type="checkbox" class="param-checkbox" data-index="{{ p.index }}"
+                           onchange="toggleParam(this)"
+                           {% if p.existing is defined and p.existing %}disabled title="Již zadáno"{% endif %}>
+                    <span class="param-name">{{ p.name }}</span>
+                    <span class="param-ref">({{ p.ref_min }}–{{ p.ref_max }} {{ p.unit }})</span>
+                    {% if p.existing is defined and p.existing %}
+                        <span class="param-exists-badge">zadáno</span>
+                    {% endif %}
+                </label>
+                <div class="param-value-input" style="display:none;" id="input_{{ p.index }}">
+                    <input type="number" step="any" name="value_{{ p.index }}" placeholder="hodnota">
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+    {% endfor %}
+
+    <div class="param-category">
+        <h3 class="category-header" onclick="toggleCategory(this)">
+            <span class="cat-arrow">&#9654;</span> Vlastní parametr
+        </h3>
+        <div class="category-body collapsed" id="custom-params">
+            <div class="custom-param-row">
+                <input type="text" name="custom_name[]" placeholder="Název parametru">
+                <input type="number" step="any" name="custom_value[]" placeholder="Hodnota">
+                <input type="text" name="custom_unit[]" placeholder="Jednotka">
+                <input type="number" step="any" name="custom_ref_min[]" placeholder="Ref. min">
+                <input type="number" step="any" name="custom_ref_max[]" placeholder="Ref. max">
+            </div>
+        </div>
+        <button type="button" class="btn-add-custom" onclick="addCustomRow()">+ Další vlastní parametr</button>
+    </div>
+
+    <button type="submit" class="btn-submit">Uložit výsledky</button>
+</form>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function toggleCategory(header) {
+    const body = header.nextElementSibling;
+    const arrow = header.querySelector(".cat-arrow");
+    body.classList.toggle("collapsed");
+    arrow.classList.toggle("open");
+}
+
+function toggleParam(checkbox) {
+    const idx = checkbox.dataset.index;
+    const inputDiv = document.getElementById("input_" + idx);
+    inputDiv.style.display = checkbox.checked ? "block" : "none";
+    if (checkbox.checked) {
+        inputDiv.querySelector("input").focus();
+    }
+}
+
+function addCustomRow() {
+    const container = document.getElementById("custom-params");
+    const row = document.createElement("div");
+    row.className = "custom-param-row";
+    row.innerHTML = `
+        <input type="text" name="custom_name[]" placeholder="Název parametru">
+        <input type="number" step="any" name="custom_value[]" placeholder="Hodnota">
+        <input type="text" name="custom_unit[]" placeholder="Jednotka">
+        <input type="number" step="any" name="custom_ref_min[]" placeholder="Ref. min">
+        <input type="number" step="any" name="custom_ref_max[]" placeholder="Ref. max">
+    `;
+    container.appendChild(row);
+}
+</script>
+{% endblock %}

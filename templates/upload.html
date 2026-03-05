@@ -1,0 +1,277 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="upload-header">
+    <h1>Nahrát výsledky odběru</h1>
+    <p class="upload-subtitle">Nahrajte PDF nebo fotku výsledků – Claude AI automaticky rozpozná parametry.</p>
+</div>
+
+<!-- Sekce 1: Upload formulář -->
+<div id="upload-section" class="upload-card">
+    <div id="drop-zone" class="drop-zone">
+        <div class="drop-icon">📄</div>
+        <p class="drop-text">Přetáhněte soubor sem nebo</p>
+        <label for="file-input" class="btn-choose-file">Vyberte soubor</label>
+        <input type="file" id="file-input" accept="image/*,application/pdf" style="display:none">
+        <p class="drop-hint">PDF, JPG nebo PNG (max. 20 MB)</p>
+        <p id="selected-filename" class="selected-filename"></p>
+    </div>
+
+    <div id="upload-error" class="upload-error" style="display:none"></div>
+
+    <button id="btn-upload" class="btn-upload" disabled>
+        Zpracovat soubor
+    </button>
+</div>
+
+<!-- Loading spinner -->
+<div id="loading-section" class="loading-section" style="display:none">
+    <div class="spinner"></div>
+    <p class="loading-text">Claude AI analyzuje výsledky…</p>
+</div>
+
+<!-- Sekce 2: Review tabulka (skrytá do extrakce) -->
+<div id="review-section" style="display:none">
+    <div class="review-header">
+        <h2>Zkontrolujte extrahované výsledky</h2>
+        <p class="review-subtitle">Ověřte a případně opravte data před uložením. Zrušte zaškrtnutí řádků, které nechcete uložit.</p>
+    </div>
+
+    <div class="review-card">
+        <div class="date-row">
+            <label for="review-date"><strong>Datum odběru:</strong></label>
+            <input type="date" id="review-date" class="review-date-input">
+        </div>
+
+        <div class="table-wrap">
+            <table id="review-table">
+                <thead>
+                    <tr>
+                        <th class="col-check">✓</th>
+                        <th>Parametr</th>
+                        <th>Hodnota</th>
+                        <th>Jednotka</th>
+                        <th>Ref. min</th>
+                        <th>Ref. max</th>
+                        <th>Stav</th>
+                    </tr>
+                </thead>
+                <tbody id="review-tbody">
+                </tbody>
+            </table>
+        </div>
+
+        <div class="review-actions">
+            <button id="btn-save" class="btn-save">Uložit odběr</button>
+            <button id="btn-cancel" class="btn-cancel" onclick="resetToUpload()">Nahrát jiný soubor</button>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const dropZone = document.getElementById("drop-zone");
+const fileInput = document.getElementById("file-input");
+const btnUpload = document.getElementById("btn-upload");
+const selectedFilename = document.getElementById("selected-filename");
+let selectedFile = null;
+
+// Drag & drop
+dropZone.addEventListener("dragover", e => {
+    e.preventDefault();
+    dropZone.classList.add("drag-over");
+});
+dropZone.addEventListener("dragleave", () => dropZone.classList.remove("drag-over"));
+dropZone.addEventListener("drop", e => {
+    e.preventDefault();
+    dropZone.classList.remove("drag-over");
+    const file = e.dataTransfer.files[0];
+    if (file) setFile(file);
+});
+
+fileInput.addEventListener("change", () => {
+    if (fileInput.files[0]) setFile(fileInput.files[0]);
+});
+
+function setFile(file) {
+    selectedFile = file;
+    selectedFilename.textContent = file.name;
+    btnUpload.disabled = false;
+    document.getElementById("upload-error").style.display = "none";
+}
+
+btnUpload.addEventListener("click", async () => {
+    if (!selectedFile) return;
+
+    // Zobraz loading
+    document.getElementById("upload-section").style.display = "none";
+    document.getElementById("loading-section").style.display = "flex";
+    document.getElementById("upload-error").style.display = "none";
+
+    const formData = new FormData();
+    formData.append("file", selectedFile);
+
+    try {
+        const response = await fetch("/upload", { method: "POST", body: formData });
+        const data = await response.json();
+
+        document.getElementById("loading-section").style.display = "none";
+
+        if (data.error) {
+            document.getElementById("upload-section").style.display = "block";
+            const errEl = document.getElementById("upload-error");
+            errEl.textContent = data.error;
+            errEl.style.display = "block";
+            return;
+        }
+
+        showReview(data);
+
+    } catch (err) {
+        document.getElementById("loading-section").style.display = "none";
+        document.getElementById("upload-section").style.display = "block";
+        const errEl = document.getElementById("upload-error");
+        errEl.textContent = "Nepodařilo se zpracovat soubor. Zkuste to znovu.";
+        errEl.style.display = "block";
+    }
+});
+
+function showReview(data) {
+    // Nastav datum
+    const dateInput = document.getElementById("review-date");
+    dateInput.value = data.date || "";
+
+    // Naplň tabulku
+    const tbody = document.getElementById("review-tbody");
+    tbody.innerHTML = "";
+
+    (data.results || []).forEach((r, i) => {
+        const inRange = isInRange(r.value, r.ref_min, r.ref_max);
+        const statusText = inRange === true ? "✓ V normě" : inRange === false ? "! Mimo normu" : "–";
+        const statusClass = inRange === true ? "status-ok" : inRange === false ? "status-out" : "status-unknown";
+
+        const tr = document.createElement("tr");
+        tr.dataset.index = i;
+        tr.innerHTML = `
+            <td><input type="checkbox" class="row-check" checked></td>
+            <td><input type="text" class="edit-cell" value="${escHtml(r.parameter)}" data-field="parameter"></td>
+            <td><input type="number" step="any" class="edit-cell edit-value" value="${r.value}" data-field="value"
+                oninput="updateStatus(this)"></td>
+            <td><input type="text" class="edit-cell edit-unit" value="${escHtml(r.unit || "")}" data-field="unit"></td>
+            <td><input type="number" step="any" class="edit-cell edit-ref" value="${r.ref_min ?? ""}" data-field="ref_min"
+                oninput="updateStatus(this)"></td>
+            <td><input type="number" step="any" class="edit-cell edit-ref" value="${r.ref_max ?? ""}" data-field="ref_max"
+                oninput="updateStatus(this)"></td>
+            <td><span class="status-badge ${statusClass}">${statusText}</span></td>
+        `;
+        tbody.appendChild(tr);
+    });
+
+    document.getElementById("review-section").style.display = "block";
+}
+
+function isInRange(value, refMin, refMax) {
+    if (refMin === null && refMax === null) return null;
+    if (refMin === null || refMax === null) return null;
+    return value >= refMin && value <= refMax;
+}
+
+function updateStatus(inputEl) {
+    const tr = inputEl.closest("tr");
+    const valueInput = tr.querySelector("[data-field='value']");
+    const refMinInput = tr.querySelector("[data-field='ref_min']");
+    const refMaxInput = tr.querySelector("[data-field='ref_max']");
+    const statusBadge = tr.querySelector(".status-badge");
+
+    const value = parseFloat(valueInput.value);
+    const refMin = refMinInput.value !== "" ? parseFloat(refMinInput.value) : null;
+    const refMax = refMaxInput.value !== "" ? parseFloat(refMaxInput.value) : null;
+
+    const inRange = isInRange(value, refMin, refMax);
+    statusBadge.className = "status-badge";
+    if (inRange === true) {
+        statusBadge.classList.add("status-ok");
+        statusBadge.textContent = "✓ V normě";
+    } else if (inRange === false) {
+        statusBadge.classList.add("status-out");
+        statusBadge.textContent = "! Mimo normu";
+    } else {
+        statusBadge.classList.add("status-unknown");
+        statusBadge.textContent = "–";
+    }
+}
+
+document.getElementById("btn-save").addEventListener("click", async () => {
+    const date = document.getElementById("review-date").value;
+    if (!date) {
+        alert("Zadejte datum odběru.");
+        return;
+    }
+
+    const rows = document.querySelectorAll("#review-tbody tr");
+    const results = [];
+    rows.forEach(tr => {
+        const checked = tr.querySelector(".row-check").checked;
+        if (!checked) return;
+
+        const cells = tr.querySelectorAll(".edit-cell");
+        const parameter = cells[0].value.trim();
+        const value = parseFloat(cells[1].value);
+        const unit = cells[2].value.trim();
+        const ref_min = cells[3].value !== "" ? parseFloat(cells[3].value) : null;
+        const ref_max = cells[4].value !== "" ? parseFloat(cells[4].value) : null;
+
+        if (parameter && !isNaN(value)) {
+            results.push({ parameter, value, unit, ref_min, ref_max });
+        }
+    });
+
+    if (results.length === 0) {
+        alert("Nejsou vybrány žádné parametry k uložení.");
+        return;
+    }
+
+    const btnSave = document.getElementById("btn-save");
+    btnSave.disabled = true;
+    btnSave.textContent = "Ukládám…";
+
+    try {
+        const response = await fetch("/api/save-extracted", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ date, results })
+        });
+        const data = await response.json();
+        if (data.ok) {
+            window.location.href = "/";
+        } else {
+            alert("Chyba při ukládání: " + (data.error || "Neznámá chyba"));
+            btnSave.disabled = false;
+            btnSave.textContent = "Uložit odběr";
+        }
+    } catch (err) {
+        alert("Nepodařilo se uložit data.");
+        btnSave.disabled = false;
+        btnSave.textContent = "Uložit odběr";
+    }
+});
+
+function resetToUpload() {
+    document.getElementById("review-section").style.display = "none";
+    document.getElementById("upload-section").style.display = "block";
+    fileInput.value = "";
+    selectedFile = null;
+    selectedFilename.textContent = "";
+    btnUpload.disabled = true;
+}
+
+function escHtml(str) {
+    return String(str)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;");
+}
+</script>
+{% endblock %}
